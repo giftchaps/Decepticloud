@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import random
+import os
 from collections import deque
 
 class DQNAgent:
@@ -87,3 +88,56 @@ class DQNAgent:
 
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
+
+    def save(self, filepath):
+        """Save model weights and training parameters to file.
+
+        Args:
+            filepath: Path to save the model (e.g., 'models/dqn_agent.pth')
+        """
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon,
+            'state_size': self.state_size,
+            'action_size': self.action_size,
+            'gamma': self.gamma,
+            'epsilon_min': self.epsilon_min,
+            'epsilon_decay': self.epsilon_decay,
+            'learning_rate': self.learning_rate
+        }
+        torch.save(checkpoint, filepath)
+        print(f"Model saved to {filepath}")
+
+    def load(self, filepath):
+        """Load model weights and training parameters from file.
+
+        Args:
+            filepath: Path to load the model from
+        """
+        if not os.path.exists(filepath):
+            print(f"Error: Model file {filepath} not found")
+            return False
+
+        checkpoint = torch.load(filepath)
+
+        # Verify state and action sizes match
+        if checkpoint['state_size'] != self.state_size or checkpoint['action_size'] != self.action_size:
+            print(f"Error: Model architecture mismatch. Expected state_size={self.state_size}, action_size={self.action_size}")
+            print(f"       Got state_size={checkpoint['state_size']}, action_size={checkpoint['action_size']}")
+            return False
+
+        # Load model and optimizer states
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        # Load hyperparameters
+        self.epsilon = checkpoint['epsilon']
+        self.gamma = checkpoint.get('gamma', self.gamma)
+        self.epsilon_min = checkpoint.get('epsilon_min', self.epsilon_min)
+        self.epsilon_decay = checkpoint.get('epsilon_decay', self.epsilon_decay)
+        self.learning_rate = checkpoint.get('learning_rate', self.learning_rate)
+
+        print(f"Model loaded from {filepath} (epsilon={self.epsilon:.4f})")
+        return True

@@ -9,7 +9,7 @@ from src.aws_utils import get_instance_id_by_ip, upload_dir_to_s3
 import numpy as np
 
 # --- CONFIGURATION ---
-STATE_SIZE = 2      # [attacker_detected (0/1), current_honeypot_type (0/1/2)]
+STATE_SIZE = 3      # [ssh_attack_detected (0/1), web_attack_detected (0/1), current_honeypot_type (0/1/2)]
 ACTION_SIZE = 3     # [0: Do Nothing, 1: Deploy Cowrie, 2: Deploy Web Honeypot]
 EPISODES = 5  # Reduced default for quick smoke runs
 BATCH_SIZE = 32
@@ -49,7 +49,7 @@ if not os.path.exists(summary_path):
 if LOG_PER_TIMESTEP and not os.path.exists(per_timestep_path):
     with open(per_timestep_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['episode', 'timestep', 'action', 'reward', 'attacker_detected', 'current_honeypot', 'timestamp'])
+        writer.writerow(['episode', 'timestep', 'action', 'reward', 'ssh_attack', 'web_attack', 'current_honeypot', 'timestamp'])
 
 
 def run_experiment():
@@ -92,13 +92,17 @@ def run_experiment():
             if LOG_PER_TIMESTEP:
                 with open(per_timestep_path, 'a', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow([e+1, t+1, int(action), float(reward), int(next_state[0]), int(next_state[1]), datetime.utcnow().isoformat()])
+                    writer.writerow([e+1, t+1, int(action), float(reward), int(next_state[0]), int(next_state[1]), int(next_state[2]), datetime.utcnow().isoformat()])
 
         print(f"Episode: {e+1}/{EPISODES}, Total Reward: {total_reward}, Epsilon: {agent.epsilon:.2f}")
         # Append summary
         with open(summary_path, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([e+1, float(total_reward), float(agent.epsilon), datetime.utcnow().isoformat()])
+
+    # Save trained model
+    model_path = os.path.join(RESULTS_DIR, 'dqn_model.pth')
+    agent.save(model_path)
 
     # Optionally upload results to S3 for later analysis
     if S3_BUCKET:

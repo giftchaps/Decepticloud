@@ -2,7 +2,16 @@
 
 An Autonomous RL Framework for Adaptive Cloud Honeynets.
 
-This repository contains the DeceptiCloud project: an experimental system that uses a Deep Q-Network (DQN) agent to manage a cloud-based honeynet (deploying either an SSH honeypot or a web honeypot) in response to detected attacker behavior.
+This repository contains the DeceptiCloud project: an experimental system that uses a Deep Q-Network (DQN) agent to dynamically manage cloud-based honeypots (SSH Cowrie and Web nginx) in response to detected attacker behavior in real-time.
+
+## Key Features
+
+- **Dual Honeypot Support**: Deploys both SSH (Cowrie) and Web (nginx) honeypots
+- **Multi-Attack Detection**: Monitors and responds to both SSH brute-force and web attacks
+- **Advanced Reward Function**: Incentivizes matching honeypot types to attack patterns
+- **Model Persistence**: Save and load trained DQN models
+- **Comprehensive Analysis**: Jupyter notebook with statistical tests and visualizations
+- **Baseline Comparison**: Static experiment script for control group analysis
 
 ## Quick Start
 
@@ -23,12 +32,16 @@ This repository contains the DeceptiCloud project: an experimental system that u
 
 Detailed step-by-step setup, experiment protocol, data collection guidance, tuning tips, and reproducibility checklist are in `GUIDE.md` (recommended read before running experiments).
 
-Files:
-- `src/agent.py` — DQNAgent implementation.
-- `src/environment.py` — CloudHoneynetEnv that connects to an EC2 instance via SSH and controls Docker honeypots.
-- `src/attacker.py` — simple scripted attacker that generates SSH login attempts.
-- `infra/main.tf` — Terraform script to create an EC2 instance and security group for the lab.
-- `notebooks/01_data_analysis.ipynb` — notebook for plotting results.
+## Core Components
+
+- `src/agent.py` — DQN Agent with model save/load functionality
+- `src/environment.py` — Cloud environment supporting dual honeypot deployment and multi-attack detection
+- `src/attacker.py` — Dual attacker simulation (SSH brute-force + web probing)
+- `src/aws_utils.py` — AWS utilities for SSM and S3 integration
+- `src/cloud_control.py` — SSM-based command execution
+- `infra/main.tf` — Terraform infrastructure as code
+- `notebooks/01_data_analysis.ipynb` — Complete analysis with statistical tests
+- `scripts/run_static_experiment.py` — Baseline static honeypot experiment
 
 ## PowerShell Scripts
 
@@ -40,5 +53,55 @@ Files:
 - `scripts/run_smoke_check.ps1` — Quick validation test
 
 See `scripts/README.md` for detailed usage.
+
+## Running Experiments
+
+**Adaptive (DQN) Experiment:**
+```bash
+python main.py
+```
+
+**Static Baseline Experiments:**
+```bash
+# SSH-only baseline
+python scripts/run_static_experiment.py --honeypot ssh --episodes 5
+
+# Web-only baseline
+python scripts/run_static_experiment.py --honeypot web --episodes 5
+
+# No honeypot baseline
+python scripts/run_static_experiment.py --honeypot none --episodes 5
+```
+
+**Analysis:**
+```bash
+jupyter notebook notebooks/01_data_analysis.ipynb
+```
+
+The analysis notebook includes:
+- Reward trajectory visualization
+- Action distribution analysis
+- Attack detection statistics
+- Statistical comparison (t-test, Mann-Whitney U)
+- Effect size calculation
+
+## State Representation
+
+The agent observes a 3-dimensional state:
+- `[0]` SSH attack detected (0/1)
+- `[1]` Web attack detected (0/1)
+- `[2]` Current honeypot deployed (0=None, 1=Cowrie, 2=Nginx)
+
+## Action Space
+
+- `0` - Do nothing / Stop all honeypots
+- `1` - Deploy Cowrie SSH honeypot (port 2222)
+- `2` - Deploy nginx web honeypot (port 80)
+
+## Reward Function
+
+- **+10** when attack type matches deployed honeypot
+- **-1** when honeypot runs without matching traffic (resource waste)
+- **-2** when attack occurs but no honeypot is deployed (missed opportunity)
 
 See `GUIDE.md` for the full recommended workflow.
