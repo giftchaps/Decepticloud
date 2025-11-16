@@ -1,0 +1,321 @@
+# Attack Scenarios for DeceptiCloud Experiments
+# Configure realistic attack patterns for testing RL vs static honeypots
+
+# Global settings
+global:
+  aws_region: us-east-1
+  default_duration_hours: 4
+  cleanup_after_attack: true
+  log_level: INFO
+
+# Scenario 1: SSH-Focused Attack
+# Tests honeypot's ability to handle SSH brute-force and lateral movement
+ssh_focused:
+  name: "SSH Brute Force Campaign"
+  duration_hours: 4
+  attack_vectors:
+    - type: ssh_brute_force
+      weight: 0.7
+      config:
+        username_list: ['ec2-user', 'ubuntu', 'admin', 'root', 'centos']
+        password_list: ['password', '123456', 'admin', 'P@ssw0rd', 'Welcome123']
+        attempts_per_burst: 50
+        burst_delay_seconds: 30-90
+    - type: ssh_enumeration
+      weight: 0.2
+      config:
+        scan_ports: [22, 2222, 2200]
+        service_detection: true
+    - type: lateral_movement_simulation
+      weight: 0.1
+      config:
+        simulated_commands: ['whoami', 'ls', 'cat /etc/passwd', 'wget', 'curl']
+
+  stratus_techniques:
+    - aws.execution.ec2-user-data
+    - aws.persistence.ec2-security-group-open-port-22
+
+  expected_outcome:
+    primary_honeypot: cowrie
+    interaction_rate: high
+    detection_confidence: high
+
+# Scenario 2: Web-Focused Attack
+# Tests honeypot's ability to handle web reconnaissance and exploitation
+web_focused:
+  name: "Web Reconnaissance & Exploitation"
+  duration_hours: 4
+  attack_vectors:
+    - type: web_reconnaissance
+      weight: 0.5
+      config:
+        paths:
+          - /admin
+          - /login
+          - /.env
+          - /api/v1/
+          - /latest/meta-data/
+        user_agents:
+          - 'aws-cli/2.0'
+          - 'cloud-scanner/1.0'
+          - 'Mozilla/5.0 (compatible; CloudBot/1.0)'
+    - type: vulnerability_scanning
+      weight: 0.3
+      config:
+        test_sql_injection: true
+        test_xss: true
+        test_path_traversal: true
+        test_rce: false  # Too aggressive
+    - type: api_enumeration
+      weight: 0.2
+      config:
+        endpoints:
+          - /api/v1/instances
+          - /api/v1/users
+          - /api/describe-instances
+
+  stratus_techniques:
+    - aws.initial-access.console-login-without-mfa
+    - aws.discovery.ec2-enumerate-from-instance
+
+  expected_outcome:
+    primary_honeypot: nginx
+    interaction_rate: high
+    detection_confidence: medium
+
+# Scenario 3: Mixed Multi-Vector Attack (RECOMMENDED)
+# Realistic adversary behavior with multiple attack vectors
+mixed:
+  name: "Multi-Vector Cloud Attack"
+  duration_hours: 8
+  attack_vectors:
+    - type: ssh_brute_force
+      weight: 0.3
+      config:
+        attempts_per_burst: 30
+        burst_delay_seconds: 60-180
+    - type: web_reconnaissance
+      weight: 0.35
+      config:
+        stealthy_mode: true
+        random_delays: true
+    - type: cloud_api_abuse
+      weight: 0.25
+      config:
+        api_calls:
+          - describe-instances
+          - list-users
+          - get-user-policy
+          - describe-security-groups
+    - type: persistence_attempts
+      weight: 0.1
+      config:
+        techniques:
+          - backdoor_creation
+          - privilege_escalation
+
+  stratus_techniques:
+    - aws.execution.ec2-launch-unusual-instances
+    - aws.persistence.lambda-backdoor-function
+    - aws.credential-access.ec2-get-password-data
+    - aws.exfiltration.ec2-share-ami
+
+  expected_outcome:
+    primary_honeypot: adaptive  # Should switch based on attack type
+    interaction_rate: very_high
+    detection_confidence: high
+    honeypot_switches: ">= 5"
+
+# Scenario 4: Cloud-Native Exploitation
+# Advanced cloud-specific attacks (AWS API abuse, IAM exploitation)
+cloud_native:
+  name: "Cloud-Native Exploitation Campaign"
+  duration_hours: 6
+  attack_vectors:
+    - type: iam_enumeration
+      weight: 0.3
+      config:
+        enumerate_users: true
+        enumerate_roles: true
+        enumerate_policies: true
+    - type: privilege_escalation
+      weight: 0.25
+      config:
+        test_iam_privesc: true
+        test_assume_role: true
+    - type: data_exfiltration
+      weight: 0.2
+      config:
+        target_s3_buckets: true
+        target_secrets: true
+    - type: defense_evasion
+      weight: 0.15
+      config:
+        disable_logging: false  # Too destructive
+        modify_cloudtrail: false
+    - type: persistence
+      weight: 0.1
+      config:
+        create_backdoor_users: true
+        create_backdoor_roles: true
+
+  stratus_techniques:
+    - aws.persistence.iam-create-backdoor-role
+    - aws.credential-access.ec2-get-password-data
+    - aws.exfiltration.s3-backdoor-bucket-policy
+    - aws.persistence.lambda-backdoor-function
+
+  expected_outcome:
+    primary_honeypot: adaptive
+    interaction_rate: medium  # Stealthier attacks
+    detection_confidence: medium
+    requires_advanced_detection: true
+
+# Scenario 5: Aggressive Multi-Stage Attack
+# High-intensity attack for stress testing
+aggressive:
+  name: "Aggressive Multi-Stage Campaign"
+  duration_hours: 2
+  attack_profile: aggressive
+  attack_vectors:
+    - type: ssh_brute_force
+      weight: 0.4
+      config:
+        attempts_per_burst: 100
+        burst_delay_seconds: 10-30
+        concurrent_sessions: 5
+    - type: web_reconnaissance
+      weight: 0.4
+      config:
+        requests_per_minute: 60
+        concurrent_scanners: 3
+    - type: cloud_api_abuse
+      weight: 0.2
+      config:
+        api_calls_per_minute: 30
+
+  expected_outcome:
+    primary_honeypot: adaptive
+    interaction_rate: extremely_high
+    resource_usage: high
+    test_scalability: true
+
+# Scenario 6: Stealthy Long-Duration Attack
+# Low and slow attack for testing detection over time
+stealthy:
+  name: "Stealthy Long-Duration Campaign"
+  duration_hours: 24
+  attack_profile: stealthy
+  attack_vectors:
+    - type: ssh_brute_force
+      weight: 0.2
+      config:
+        attempts_per_burst: 5
+        burst_delay_seconds: 300-600  # 5-10 min between bursts
+    - type: web_reconnaissance
+      weight: 0.3
+      config:
+        requests_per_minute: 2
+        random_delays: 60-300
+    - type: cloud_api_abuse
+      weight: 0.5
+      config:
+        api_calls_per_minute: 1
+        mimic_legitimate_traffic: true
+
+  expected_outcome:
+    primary_honeypot: adaptive
+    interaction_rate: low
+    detection_difficulty: high
+    test_long_term_learning: true
+
+# Baseline Static Comparisons
+baselines:
+  # Static SSH honeypot (control group)
+  static_ssh:
+    honeypot_type: cowrie
+    fixed_deployment: true
+    scenarios_to_run: ['ssh_focused', 'mixed', 'cloud_native']
+
+  # Static Web honeypot (control group)
+  static_web:
+    honeypot_type: nginx
+    fixed_deployment: true
+    scenarios_to_run: ['web_focused', 'mixed', 'cloud_native']
+
+  # No honeypot (null baseline)
+  static_none:
+    honeypot_type: none
+    fixed_deployment: true
+    scenarios_to_run: ['mixed']
+
+# Experimental Protocol
+experiment_protocol:
+  # Run each scenario 3 times for statistical significance
+  repetitions: 3
+
+  # Randomize order to reduce bias
+  randomize_order: true
+
+  # Scenarios to include in full experimental run
+  scenarios:
+    - ssh_focused
+    - web_focused
+    - mixed
+    - cloud_native
+
+  # Baselines to compare against
+  baselines:
+    - static_ssh
+    - static_web
+
+  # Metrics to collect
+  metrics:
+    - total_interactions
+    - unique_attack_techniques
+    - attack_type_match_rate
+    - honeypot_switch_frequency
+    - total_reward
+    - detection_diversity_score
+    - resource_efficiency
+
+  # Statistical tests to run
+  statistical_tests:
+    - t_test
+    - mann_whitney_u
+    - cohens_d_effect_size
+
+# MITRE ATT&CK Mapping
+# Map scenarios to ATT&CK tactics and techniques
+mitre_attack_mapping:
+  ssh_focused:
+    tactics:
+      - Initial Access
+      - Credential Access
+      - Lateral Movement
+    techniques:
+      - T1078  # Valid Accounts
+      - T1110  # Brute Force
+      - T1021.004  # SSH
+
+  web_focused:
+    tactics:
+      - Reconnaissance
+      - Initial Access
+      - Discovery
+    techniques:
+      - T1595  # Active Scanning
+      - T1190  # Exploit Public-Facing Application
+      - T1526  # Cloud Service Discovery
+
+  cloud_native:
+    tactics:
+      - Credential Access
+      - Privilege Escalation
+      - Persistence
+      - Defense Evasion
+    techniques:
+      - T1552.005  # Cloud Instance Metadata API
+      - T1078.004  # Cloud Accounts
+      - T1098.001  # Additional Cloud Credentials
+      - T1562.008  # Disable Cloud Logs

@@ -12,6 +12,9 @@ This repository contains the DeceptiCloud project: an experimental system that u
 - **Model Persistence**: Save and load trained DQN models
 - **Comprehensive Analysis**: Jupyter notebook with statistical tests and visualizations
 - **Baseline Comparison**: Static experiment script for control group analysis
+- **Realistic Attack Simulation**: Integration with industry-standard attack frameworks (Stratus Red Team, CALDERA, Pacu)
+- **MITRE ATT&CK Mapping**: Attack scenarios mapped to adversary tactics and techniques
+- **Configurable Scenarios**: 6 predefined attack scenarios from stealthy to aggressive
 
 ## Quick Start
 
@@ -56,6 +59,8 @@ See `scripts/README.md` for detailed usage.
 
 ## Running Experiments
 
+### Basic Experiments (Simple Attacks)
+
 **Adaptive (DQN) Experiment:**
 ```bash
 python main.py
@@ -72,6 +77,44 @@ python scripts/run_static_experiment.py --honeypot web --episodes 5
 # No honeypot baseline
 python scripts/run_static_experiment.py --honeypot none --episodes 5
 ```
+
+### Realistic Experiments (Industry-Standard Attack Frameworks) ⭐
+
+**Recommended for research validation:**
+
+```bash
+# Set environment variables
+export EC2_HOST="your-ec2-ip"
+export EC2_KEY_FILE="/path/to/key.pem"
+
+# Adaptive RL with mixed attack scenario (4 hours)
+python scripts/run_realistic_experiment.py --scenario mixed --duration 4
+
+# Static SSH baseline with same attacks
+python scripts/run_realistic_experiment.py --mode static --honeypot ssh --scenario mixed --duration 4
+
+# Static web baseline
+python scripts/run_realistic_experiment.py --mode static --honeypot web --scenario mixed --duration 4
+
+# Cloud-native attacks (AWS-specific exploitation)
+python scripts/run_realistic_experiment.py --scenario cloud_native --duration 6
+
+# Aggressive multi-vector attack (stress test)
+python scripts/run_realistic_experiment.py --scenario aggressive --duration 2
+
+# Stealthy long-duration campaign (24 hours)
+python scripts/run_realistic_experiment.py --scenario stealthy --duration 24
+```
+
+**Available Attack Scenarios:**
+- `ssh_focused` - SSH brute-force and lateral movement
+- `web_focused` - Web reconnaissance and API enumeration
+- `mixed` - Multi-vector realistic adversary (recommended)
+- `cloud_native` - AWS-specific exploitation (IAM, S3, EC2)
+- `aggressive` - High-intensity attack for stress testing
+- `stealthy` - Low and slow long-duration campaign
+
+See `docs/ATTACK_FRAMEWORKS.md` for detailed information about attack frameworks and `config/attack_scenarios.yaml` for configuration.
 
 **Analysis:**
 ```bash
