@@ -88,51 +88,173 @@ class CloudHoneynetEnv:
             print(f"Error executing SSH command: {e}")
             return None, str(e)
 
+    def _check_container_health(self, container_name):
+        """Check if container is running and healthy."""
+        cmd = f"docker inspect --format='{{{{.State.Health.Status}}}}' {container_name} 2>/dev/null || echo 'not-running'"
+        status, err = self._execute_command(cmd)
+        return status.strip() in ('healthy', 'starting') if status else False
+
     def _get_state(self):
         print("Getting new state from EC2 instance...")
 
         # Check for SSH attacks (Cowrie logs)
         ssh_attack_detected = 0
-        cmd = f"tail -n 20 {self.cowrie_log_path} 2>/dev/null || echo ''"
-        log_data, err = self._execute_command(cmd)
-        if log_data and log_data.strip():
-            for line in log_data.strip().split('\n'):
-                if line:
-                    try:
-                        log_entry = json.loads(line)
-                        if log_entry.get('eventid') == 'cowrie.session.connect':
-                            ssh_attack_detected = 1
-                            break
-                    except json.JSONDecodeError:
-                        pass
+
+        # Check if Cowrie container is running
+        if self._check_container_health('cowrie_honeypot'):
+            # Read logs from Docker volume or container
+            cmd = "docker exec cowrie_honeypot cat /cowrie/var/log/cowrie/cowrie.json 2>/dev/null | tail -n 20 || echo ''"
+            log_data, err = self._execute_command(cmd)
+
+            if log_data and log_data.strip():
+                for line in log_data.strip().split('\n'):
+                    if line:
+                        try:
+                            log_entry = json.loads(line)
+                            if log_entry.get('eventid') == 'cowrie.session.connect':
+                                ssh_attack_detected = 1
+                                break
+                        except json.JSONDecodeError:
+                            pass
 
         # Check for web attacks (nginx access logs)
         web_attack_detected = 0
-        cmd = f"docker exec web_honeypot tail -n 20 {self.nginx_log_path} 2>/dev/null || echo ''"
-        log_data, err = self._execute_command(cmd)
-        if log_data and log_data.strip():
-            # Any HTTP request in the last check indicates web traffic
-            lines = [l for l in log_data.strip().split('\n') if l.strip()]
-            if len(lines) > 0:
-                web_attack_detected = 1
+
+        # Check if nginx container is running
+        if self._check_container_health('web_honeypot'):
+            # Read access logs from nginx container
+            cmd = "docker exec web_honeypot tail -n 20 /var/log/nginx/access.log 2>/dev/null || echo ''"
+            log_data, err = self._execute_command(cmd)
+
+            if log_data and log_data.strip():
+                # Any HTTP request in the last check indicates web traffic
+                lines = [l for l in log_data.strip().split('\n') if l.strip()]
+                if len(lines) > 0:
+                    web_attack_detected = 1
 
         return np.array([ssh_attack_detected, web_attack_detected, self.current_honeypot])
 
+    def _deploy_cowrie_honeypot(self):
+        """Deploy Cowrie SSH honeypot with proper configuration."""
+        print("[Honeypot] Deploying Cowrie SSH honeypot...")
+
+        # Remove existing container if any
+        self._execute_command("docker rm -f cowrie_honeypot 2>/dev/null || true")
+
+        # Check if custom image exists, fallback to default
+        check_img = "docker images -q decepticloud/cowrie:latest 2>/dev/null"
+        img_exists, _ = self._execute_command(check_img)
+
+        if img_exists and img_exists.strip():
+            image = "decepticloud/cowrie:latest"
+        else:
+            image = "cowrie/cowrie:latest"
+            print(f"[Warning] Custom image not found, using {image}")
+
+        # Deploy with volume mounts for persistence and configuration
+        cmd = f"""docker run -d \
+            -p 2222:2222 \
+            --name cowrie_honeypot \
+            --health-cmd='nc -z localhost 2222 || exit 1' \
+            --health-interval=30s \
+            --health-timeout=10s \
+            --health-retries=3 \
+            --restart=unless-stopped \
+            -e HONEYPOT_HOSTNAME=ip-10-0-1-42 \
+            {image}"""
+
+        stdout, stderr = self._execute_command(cmd)
+
+        if stderr and 'error' in stderr.lower():
+            print(f"[Error] Failed to deploy Cowrie: {stderr}")
+            return False
+
+        # Wait for container to be healthy
+        for i in range(10):
+            if self._check_container_health('cowrie_honeypot'):
+                print("[Success] Cowrie honeypot deployed and healthy")
+                return True
+            time.sleep(2)
+
+        print("[Warning] Cowrie deployed but health check pending")
+        return True
+
+    def _deploy_web_honeypot(self):
+        """Deploy nginx web honeypot with anti-detection content."""
+        print("[Honeypot] Deploying nginx web honeypot...")
+
+        # Remove existing container
+        self._execute_command("docker rm -f web_honeypot 2>/dev/null || true")
+
+        # Check if custom image exists
+        check_img = "docker images -q decepticloud/nginx:latest 2>/dev/null"
+        img_exists, _ = self._execute_command(check_img)
+
+        if img_exists and img_exists.strip():
+            image = "decepticloud/nginx:latest"
+        else:
+            image = "nginx:latest"
+            print(f"[Warning] Custom image not found, using {image}")
+
+        # Deploy with health check
+        cmd = f"""docker run -d \
+            -p 80:80 \
+            --name web_honeypot \
+            --health-cmd='curl -sf http://localhost/ > /dev/null || exit 1' \
+            --health-interval=30s \
+            --health-timeout=10s \
+            --health-retries=3 \
+            --restart=unless-stopped \
+            {image}"""
+
+        stdout, stderr = self._execute_command(cmd)
+
+        if stderr and 'error' in stderr.lower():
+            print(f"[Error] Failed to deploy nginx: {stderr}")
+            return False
+
+        # Wait for container to be healthy
+        for i in range(10):
+            if self._check_container_health('web_honeypot'):
+                print("[Success] Web honeypot deployed and healthy")
+                return True
+            time.sleep(2)
+
+        print("[Warning] Web honeypot deployed but health check pending")
+        return True
+
     def step(self, action):
         print(f"Executing action: {action}")
-        if action == 0: # Do Nothing / Stop Honeypot
-            self._execute_command("docker stop cowrie_honeypot || true")
-            self._execute_command("docker stop web_honeypot || true")
-            self.current_honeypot = 0
-        elif action == 1: # Deploy Cowrie (SSH)
-            self._execute_command("docker stop web_honeypot || true")
-            self._execute_command("docker run -d --rm -p 2222:2222 --name cowrie_honeypot cowrie/cowrie")
-            self.current_honeypot = 1
-        elif action == 2: # Deploy Web Honeypot
-            self._execute_command("docker stop cowrie_honeypot || true")
-            self._execute_command("docker run -d --rm -p 80:80 --name web_honeypot nginx")
-            self.current_honeypot = 2
 
+        if action == 0:  # Do Nothing / Stop Honeypot
+            print("[Action] Stopping all honeypots...")
+            self._execute_command("docker stop cowrie_honeypot 2>/dev/null || true")
+            self._execute_command("docker stop web_honeypot 2>/dev/null || true")
+            self.current_honeypot = 0
+
+        elif action == 1:  # Deploy Cowrie (SSH)
+            # Stop web honeypot if running
+            self._execute_command("docker stop web_honeypot 2>/dev/null || true")
+
+            # Deploy Cowrie with error handling
+            if self._deploy_cowrie_honeypot():
+                self.current_honeypot = 1
+            else:
+                print("[Error] Failed to deploy Cowrie, staying in idle state")
+                self.current_honeypot = 0
+
+        elif action == 2:  # Deploy Web Honeypot
+            # Stop SSH honeypot if running
+            self._execute_command("docker stop cowrie_honeypot 2>/dev/null || true")
+
+            # Deploy nginx with error handling
+            if self._deploy_web_honeypot():
+                self.current_honeypot = 2
+            else:
+                print("[Error] Failed to deploy web honeypot, staying in idle state")
+                self.current_honeypot = 0
+
+        # Give containers time to fully start and be ready
         time.sleep(5)
 
         next_state = self._get_state()

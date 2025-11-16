@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # SSH Honeypot (Cowrie) with anti-detection
+  cowrie:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cowrie
+    image: decepticloud/cowrie:latest
+    container_name: cowrie_honeypot
+    ports:
+      - "2222:2222"
+    volumes:
+      # Mount custom configuration
+      - ../config/cowrie_realistic.cfg:/cowrie/etc/custom/cowrie.cfg:ro
+      # Mount realistic filesystem if available
+      - ../honeyfs:/cowrie/share/cowrie/custom:ro
+      # Mount logs for analysis
+      - cowrie_logs:/cowrie/var/log/cowrie
+    environment:
+      - HONEYPOT_HOSTNAME=ip-10-0-1-42
+    restart: unless-stopped
+    networks:
+      - honeynet
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Web Honeypot (Nginx) with anti-detection
+  nginx:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.nginx
+    image: decepticloud/nginx:latest
+    container_name: web_honeypot
+    ports:
+      - "80:80"
+    volumes:
+      # Mount realistic web content
+      - ../web_content:/usr/share/nginx/html:ro
+      # Mount logs for analysis
+      - nginx_logs:/var/log/nginx
+    restart: unless-stopped
+    networks:
+      - honeynet
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Traffic Normalizer (background legitimate traffic)
+  traffic-normalizer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.traffic-normalizer
+    image: decepticloud/traffic-normalizer:latest
+    container_name: traffic_normalizer
+    depends_on:
+      - cowrie
+      - nginx
+    environment:
+      - TARGET_HOST=localhost
+      - SSH_PORT=2222
+      - WEB_PORT=80
+    networks:
+      - honeynet
+    restart: unless-stopped
+
+networks:
+  honeynet:
+    driver: bridge
+
+volumes:
+  cowrie_logs:
+    driver: local
+  nginx_logs:
+    driver: local

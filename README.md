@@ -198,3 +198,185 @@ See `docs/ANTI_DETECTION.md` for complete documentation on:
 - **Honeytoken Usage**: Attackers attempting to use fake credentials (target: >20%)
 
 See `GUIDE.md` for the full recommended workflow.
+
+## Production Deployment 🚀
+
+DeceptiCloud is production-ready with full AWS infrastructure automation, monitoring, and cost controls.
+
+### Quick Start (20 minutes)
+
+```bash
+# 1. Configure AWS and create key pair
+aws configure
+aws ec2 create-key-pair --key-name decepticloud-key \
+  --query 'KeyMaterial' --output text > ~/.ssh/decepticloud-key.pem
+chmod 400 ~/.ssh/decepticloud-key.pem
+
+# 2. Deploy infrastructure
+cd infra
+terraform init
+terraform apply -auto-approve
+
+# 3. Test deployment
+PUBLIC_IP=$(terraform output -raw public_ip)
+cd ..
+python scripts/test_production_deployment.py $PUBLIC_IP \
+  --ssh-key ~/.ssh/decepticloud-key.pem
+
+# 4. Set up monitoring
+SNS_TOPIC=$(cd infra && terraform output -raw honeytoken_alerts_topic)
+aws sns subscribe --topic-arn $SNS_TOPIC \
+  --protocol email --notification-endpoint your-email@example.com
+```
+
+**See [PRODUCTION_QUICK_START.md](PRODUCTION_QUICK_START.md) for complete quick start guide.**
+
+### Production Features
+
+✅ **VPC Isolation** - Dedicated VPC with public/private subnets
+✅ **Container Orchestration** - Docker Compose with health checks
+✅ **Network Monitoring** - VPC Flow Logs for all traffic
+✅ **Honeytoken Monitoring** - CloudTrail alerts on fake credential usage
+✅ **Cost Controls** - Billing alarms and automated cleanup
+✅ **Automated Deployment** - EC2 user_data bootstraps honeypots
+✅ **Log Aggregation** - CloudWatch Logs with retention policies
+✅ **SNS Alerting** - Real-time notifications for security events
+
+### Infrastructure Components
+
+**Compute:**
+- EC2 instance (t2.medium recommended, ~$35/month)
+- Cowrie SSH honeypot (Docker container, port 2222)
+- nginx web honeypot (Docker container, port 80)
+
+**Networking:**
+- VPC with 10.0.0.0/16 CIDR
+- Public subnet for honeypot exposure
+- Private subnet for management (future)
+- Internet Gateway for public access
+- Security groups (SSH 2222, HTTP 80)
+
+**Monitoring:**
+- VPC Flow Logs (CloudWatch, 7-day retention)
+- CloudTrail (S3 + CloudWatch, 30-day retention)
+- CloudWatch metric filters for honeytoken usage
+- SNS topics for alerts
+
+**Storage:**
+- S3 bucket for CloudTrail logs
+- S3 bucket for experiment results (optional)
+- EBS volumes for Docker persistence
+
+**Expected Monthly Cost:** ~$40
+- EC2 t2.medium: $35
+- S3 storage: $1
+- CloudWatch logs: $2
+- CloudTrail: $2
+
+**Cost Reduction:**
+- Use t2.small (~$17/month)
+- Stop instance when not testing (~$2/month for storage only)
+- Reduce log retention to 7 days
+
+### Testing Production Deployment
+
+```bash
+# Automated testing (validates all components)
+python scripts/test_production_deployment.py $PUBLIC_IP \
+  --ssh-key ~/.ssh/decepticloud-key.pem
+
+# Manual testing
+ssh -p 2222 root@$PUBLIC_IP  # Test SSH honeypot (password: password)
+curl http://$PUBLIC_IP/      # Test web honeypot
+curl http://$PUBLIC_IP/.env  # Test honeytoken exposure
+
+# Run realistic attack simulation
+python scripts/run_realistic_experiment.py \
+  --scenario mixed --target $PUBLIC_IP --duration 300
+```
+
+### Monitoring Production Honeypots
+
+**View Real-Time Logs:**
+```bash
+# VPC Flow Logs
+aws logs tail /aws/vpc/decepticloud-flow-logs --follow
+
+# Cowrie SSH logs
+ssh -i ~/.ssh/decepticloud-key.pem ubuntu@$PUBLIC_IP
+docker logs -f cowrie_honeypot
+
+# nginx web logs
+docker logs -f nginx_honeypot
+```
+
+**Honeytoken Alerts:**
+When attackers use fake AWS credentials from honeypots, you'll receive email alerts via SNS.
+
+Fake credentials are in:
+- `/home/ubuntu/.aws/credentials` (SSH honeypot)
+- `/.env` (web honeypot)
+- `/opt/app/config.json` (SSH honeypot)
+
+**Cost Monitoring:**
+```bash
+python scripts/cost_control.py monitor-costs
+```
+
+### Production Documentation
+
+📖 **[PRODUCTION_QUICK_START.md](PRODUCTION_QUICK_START.md)** - 20-minute quick start guide
+📖 **[docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md)** - Complete production guide with:
+- Prerequisites and AWS setup
+- Terraform infrastructure walkthrough
+- Honeytoken monitoring configuration
+- Cost control and billing alarms
+- Testing and validation procedures
+- Security considerations
+- Troubleshooting guide
+- Cleanup and teardown
+
+### Production Architecture
+
+```
+┌─────────────────────────────────────────┐
+│              AWS VPC                    │
+│  ┌───────────────────────────────────┐  │
+│  │      EC2 Instance (Ubuntu 22.04)  │  │
+│  │  ┌──────────┐   ┌──────────┐     │  │
+│  │  │ Cowrie   │   │  nginx   │     │  │
+│  │  │SSH :2222 │   │Web :80   │     │  │
+│  │  └──────────┘   └──────────┘     │  │
+│  │         Docker + Health Checks    │  │
+│  └───────────────────────────────────┘  │
+│              ↓                          │
+│      VPC Flow Logs                      │
+└─────────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────────┐
+│         CloudWatch + CloudTrail         │
+│  - Network traffic logs                 │
+│  - Honeytoken usage detection           │
+│  - Billing alarms                       │
+└─────────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────────┐
+│           SNS Alerts → Email            │
+└─────────────────────────────────────────┘
+```
+
+### Cleanup
+
+**Stop instance (preserve data):**
+```bash
+INSTANCE_ID=$(cd infra && terraform output -raw instance_id)
+aws ec2 stop-instances --instance-ids $INSTANCE_ID
+# Cost: ~$2/month (EBS storage only)
+```
+
+**Destroy everything:**
+```bash
+cd infra
+terraform destroy -auto-approve
+# Cost: $0
+```
