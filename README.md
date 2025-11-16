@@ -20,7 +20,28 @@ This repository contains the DeceptiCloud project: an experimental system that u
 - **Traffic Normalization**: Background activity simulation for realistic appearance
 - **Honeytokens**: Fake credentials and data to attract and track attackers
 
-## Quick Start
+## Local Testing First (Recommended) 🔧
+
+**Test honeypots locally with Docker before deploying to AWS** - no costs, instant feedback, easy debugging!
+
+```bash
+# 1. Setup (creates directories and content)
+bash scripts/setup_local_test.sh
+
+# 2. Start honeypots
+docker-compose -f docker-compose.local.yml up -d
+
+# 3. Test
+python scripts/test_local_honeypots.py
+
+# 4. Access honeypots
+ssh -p 2222 root@localhost          # SSH honeypot (password: password)
+curl http://localhost:8080/.env     # Web honeypot with honeytokens
+```
+
+**See [LOCAL_TESTING.md](LOCAL_TESTING.md) for complete local testing guide.**
+
+## Quick Start (AWS Deployment)
 
 **Automated Setup (Recommended):**
 ```powershell

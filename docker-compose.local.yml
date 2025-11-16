@@ -1,0 +1,58 @@
+version: '3.8'
+
+# Local testing configuration for DeceptiCloud honeypots
+# Run with: docker-compose -f docker-compose.local.yml up
+
+services:
+  # Cowrie SSH Honeypot
+  cowrie:
+    image: cowrie/cowrie:latest
+    container_name: cowrie_honeypot_local
+    ports:
+      - "2222:2222"  # SSH honeypot port
+    volumes:
+      - ./data/cowrie/logs:/cowrie/cowrie-git/var/log/cowrie
+      - ./data/cowrie/downloads:/cowrie/cowrie-git/var/lib/cowrie/downloads
+      - ./data/cowrie/etc:/cowrie/cowrie-git/etc:ro
+    environment:
+      - COWRIE_HOSTNAME=production-server-42
+      - COWRIE_SSH_VERSION_STRING=SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - honeynet
+
+  # nginx Web Honeypot
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_honeypot_local
+    ports:
+      - "8080:80"  # Web honeypot port (using 8080 to avoid conflicts)
+    volumes:
+      - ./data/nginx/logs:/var/log/nginx
+      - ./data/nginx/content:/usr/share/nginx/html:ro
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - honeynet
+
+networks:
+  honeynet:
+    driver: bridge
+
+volumes:
+  cowrie_logs:
+  cowrie_downloads:
+  nginx_logs:
+  nginx_content:
