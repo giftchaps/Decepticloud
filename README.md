@@ -15,6 +15,10 @@ This repository contains the DeceptiCloud project: an experimental system that u
 - **Realistic Attack Simulation**: Integration with industry-standard attack frameworks (Stratus Red Team, CALDERA, Pacu)
 - **MITRE ATT&CK Mapping**: Attack scenarios mapped to adversary tactics and techniques
 - **Configurable Scenarios**: 6 predefined attack scenarios from stealthy to aggressive
+- **Anti-Detection Measures**: Honeypot hardening to maximize dwell time and avoid fingerprinting
+- **Dwell Time Tracking**: Measure how long attackers engage before detecting deception
+- **Traffic Normalization**: Background activity simulation for realistic appearance
+- **Honeytokens**: Fake credentials and data to attract and track attackers
 
 ## Quick Start
 
@@ -146,5 +150,51 @@ The agent observes a 3-dimensional state:
 - **+10** when attack type matches deployed honeypot
 - **-1** when honeypot runs without matching traffic (resource waste)
 - **-2** when attack occurs but no honeypot is deployed (missed opportunity)
+
+## Anti-Detection & Dwell Time Maximization
+
+DeceptiCloud includes comprehensive anti-detection measures to make honeypots indistinguishable from real systems, maximizing attacker dwell time.
+
+### Deploy Anti-Detection Measures
+
+```bash
+# Generate realistic honeypot content
+bash scripts/deploy_anti_detection.sh
+
+# This creates:
+# - Realistic Cowrie filesystem with fake credentials
+# - Realistic process lists
+# - Web content with honeytokens (.env, .aws/credentials, etc.)
+# - Deployment instructions
+```
+
+### Start Traffic Normalizer
+
+```bash
+# Generate realistic background traffic (masks honeypot nature)
+python src/traffic_normalizer.py <EC2-IP> &
+```
+
+### Track Dwell Time
+
+Dwell time metrics are automatically tracked and included in results:
+- Average session duration
+- Commands executed before detection
+- Engagement score (0-100)
+- Detection rate
+
+See `docs/ANTI_DETECTION.md` for complete documentation on:
+- Honeypot fingerprinting prevention
+- Realistic filesystem configuration
+- Honeytoken deployment
+- Traffic normalization strategies
+- Dwell time optimization
+
+### Key Metrics
+
+- **Dwell Time**: How long attackers interact before leaving (target: >15 min)
+- **Detection Rate**: Percentage of attackers who identify honeypot (target: <10%)
+- **Engagement Score**: Quality of interaction (0-100, target: >70)
+- **Honeytoken Usage**: Attackers attempting to use fake credentials (target: >20%)
 
 See `GUIDE.md` for the full recommended workflow.
