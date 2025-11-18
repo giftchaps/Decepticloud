@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  ssh-honeypot:
+    build: ./ssh-honeypot
+    ports:
+      - "2222:2222"
+    restart: unless-stopped
+    
+  web-honeypot:
+    build: ./web-honeypot
+    ports:
+      - "80:80"
+    restart: unless-stopped

@@ -38,7 +38,27 @@ Files:
 - `scripts/terraform_destroy.ps1` — Clean up resources
 - `scripts/run_experiment.ps1` — Run DeceptiCloud experiment
 - `scripts/run_smoke_check.ps1` — Quick validation test
+- `scripts/docker_manage.ps1` — Docker honeypot management
 
 See `scripts/README.md` for detailed usage.
+
+## Docker Honeypots
+
+Local testing with Docker containers:
+```powershell
+# Build and start honeypots
+.\scripts\docker_manage.ps1 -Action build
+.\scripts\docker_manage.ps1 -Action start
+
+# Test endpoints
+# SSH: localhost:2222
+# Web: http://localhost
+
+# View logs
+.\scripts\docker_manage.ps1 -Action logs
+
+# Stop containers
+.\scripts\docker_manage.ps1 -Action stop
+```
 
 See `GUIDE.md` for the full recommended workflow.

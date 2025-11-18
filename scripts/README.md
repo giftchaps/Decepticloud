@@ -47,6 +47,25 @@ PowerShell scripts for managing DeceptiCloud infrastructure and experiments.
 .\scripts\run_smoke_check.ps1
 ```
 
+### Docker Management
+```powershell
+# Build honeypot containers
+.\scripts\docker_manage.ps1 -Action build
+
+# Start all honeypots
+.\scripts\docker_manage.ps1 -Action start
+
+# Start specific honeypot
+.\scripts\docker_manage.ps1 -Action start -Service ssh
+.\scripts\docker_manage.ps1 -Action start -Service web
+
+# View logs
+.\scripts\docker_manage.ps1 -Action logs -Service ssh
+
+# Stop containers
+.\scripts\docker_manage.ps1 -Action stop
+```
+
 ## Parameters
 
 ### setup_infrastructure.ps1
