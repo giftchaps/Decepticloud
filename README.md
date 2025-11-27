@@ -39,7 +39,33 @@ ssh -p 2222 root@localhost          # SSH honeypot (password: password)
 curl http://localhost:8080/.env     # Web honeypot with honeytokens
 ```
 
-**See [LOCAL_TESTING.md](LOCAL_TESTING.md) for complete local testing guide.**
+### Automated Testing (Recommended!)
+
+**Windows PowerShell:**
+```powershell
+# One command to test everything
+.\scripts\test_complete_local.ps1
+```
+
+**Linux/Mac:**
+```bash
+# One command to test everything
+bash scripts/test_complete_local.sh
+```
+
+**This will automatically:**
+- ✅ Setup environment
+- ✅ Start honeypots
+- ✅ Test connectivity
+- ✅ Generate attack traffic
+- ✅ Run RL agent
+- ✅ Show results
+
+**See [COMPLETE_TESTING_GUIDE.md](COMPLETE_TESTING_GUIDE.md) for step-by-step manual testing.**
+
+**See [LOCAL_TESTING.md](LOCAL_TESTING.md) for detailed documentation.**
+
+**See [WINDOWS_QUICKSTART.md](WINDOWS_QUICKSTART.md) for Windows-specific guide.**
 
 ## Quick Start (AWS Deployment)
 
