@@ -26,3 +26,9 @@ results/
 # OS
 .DS_Store
 Thumbs.db
+
+# Archived files
+.archive/
+
+# Honeypot runtime data
+data/
