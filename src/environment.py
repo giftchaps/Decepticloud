@@ -5,6 +5,8 @@ import json
 import os
 from . import utils
 from .cloud_control import CloudCommandRunner
+from .local_honeypot_manager import LocalHoneypotManager
+# from .monitoring import monitor  # Optional monitoring
 
 class CloudHoneynetEnv:
     def __init__(self, host, user, key_file, use_ssm=False, ssm_instance_id=None, aws_region=None, dry_run=False):
@@ -43,15 +45,31 @@ class CloudHoneynetEnv:
 
         # Dry-run (do not execute remote commands, only print them)
         self.dry_run = bool(dry_run)
+        
+        # Initialize local honeypot manager for research validation
+        self.honeypot_manager = LocalHoneypotManager()
+        if self.host == 'localhost':
+            print("[Environment] Using local honeypot manager for research validation")
+            self.honeypot_manager.simulate_realistic_attacks(duration=600)  # 10 minutes of attacks
 
         # Attempt SSH connect if using SSH
         if not use_ssm and self.host:
             try:
-                self.ssh_client.connect(hostname=self.host, username=self.user, key_filename=self.key_file)
+                self.ssh_client.connect(
+                    hostname=self.host, 
+                    username=self.user, 
+                    key_filename=self.key_file,
+                    timeout=30,
+                    banner_timeout=30,
+                    auth_timeout=30,
+                    look_for_keys=False,
+                    allow_agent=False
+                )
                 print("Successfully connected to EC2 instance via SSH.")
             except Exception as e:
                 print(f"ERROR: Could not connect to EC2 instance via SSH. {e}")
                 print("Please check your EC2_HOST, EC2_USER, and EC2_KEY_FILE variables in main.py")
+                self.ssh_client = None
 
     def _execute_command(self, cmd):
         """Execute a shell command either via SSM or SSH depending on configuration.
@@ -75,55 +93,136 @@ class CloudHoneynetEnv:
             return None, 'no ssh client available'
 
         try:
-            stdin, stdout, stderr = self.ssh_client.exec_command(cmd)
-            return stdout.read().decode(), stderr.read().decode()
+            stdin, stdout, stderr = self.ssh_client.exec_command(cmd, timeout=30)
+            stdout_data = stdout.read().decode()
+            stderr_data = stderr.read().decode()
+            return stdout_data, stderr_data
         except Exception as e:
             print(f"Error executing SSH command: {e}")
-            return None, str(e)
+            return "", str(e)
 
     def _get_state(self):
-        print("Getting new state from EC2 instance...")
-        cmd = "tail -n 20 /home/ubuntu/cowrie/var/log/cowrie/cowrie.json"
-        log_data, err = self._execute_command(cmd)
+        print("[Environment] Checking for attacker activity...")
         attacker_detected = 0
-        if log_data:
-            for line in log_data.strip().split('\n'):
-                if line:
-                    try:
-                        log_entry = json.loads(line)
-                        if log_entry.get('eventid') == 'cowrie.session.connect':
-                            attacker_detected = 1
-                            break
-                    except json.JSONDecodeError:
-                        pass
+        attacker_details = {}
+        
+        # Use local honeypot manager for localhost
+        if self.host == 'localhost' and hasattr(self, 'honeypot_manager'):
+            attacker_detected = self.honeypot_manager.get_attack_detection_state()
+            if attacker_detected:
+                metrics = self.honeypot_manager.get_performance_metrics()
+                print(f"[Environment] Attack detected! Total attacks: {metrics['total_attacks']}")
+                attacker_details = {'detection_method': 'local_simulation', 'metrics': metrics}
+            return np.array([attacker_detected, self.current_honeypot])
+        
+        # Remote instance detection
+        running_containers, _ = self._execute_command("docker ps --format '{{.Names}}'")
+        if not running_containers:
+            running_containers = ""
+        
+        # Check for SSH honeypot logs (Cowrie)
+        if 'cowrie_honeypot' in running_containers:
+            # Check Cowrie logs for recent connections with IP extraction
+            log_cmd = "docker logs --tail 50 cowrie_honeypot 2>/dev/null | grep -i 'new connection' | tail -5"
+            log_data, _ = self._execute_command(log_cmd)
+            if log_data and log_data.strip():
+                attacker_detected = 1
+                print(f"[Environment] Attacker activity detected in SSH honeypot")
+                
+                # Extract attacker IP from logs
+                ip_cmd = r"docker logs --tail 10 cowrie_honeypot 2>/dev/null | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | tail -1"
+                attacker_ip, _ = self._execute_command(ip_cmd)
+                attacker_ip = attacker_ip.strip() if attacker_ip else "unknown"
+                
+                attacker_details = {
+                    'ip': attacker_ip,
+                    'honeypot_type': 'ssh',
+                    'log_sample': log_data.strip()[-200:]  # Last 200 chars
+                }
+                
+                # Optional CloudWatch logging
+                print(f"[CloudWatch] Attack detected from {attacker_ip} on SSH honeypot")
+        
+        # Check for web honeypot access logs
+        elif 'web_honeypot' in running_containers:
+            # Check nginx access logs for recent requests
+            log_cmd = "docker logs --tail 20 web_honeypot 2>/dev/null | grep -E '(GET|POST)' | tail -3"
+            log_data, _ = self._execute_command(log_cmd)
+            if log_data and log_data.strip():
+                attacker_detected = 1
+                print(f"[Environment] Attacker activity detected in web honeypot")
+                
+                # Extract IP from nginx logs
+                ip_cmd = r"docker logs --tail 10 web_honeypot 2>/dev/null | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | tail -1"
+                attacker_ip, _ = self._execute_command(ip_cmd)
+                attacker_ip = attacker_ip.strip() if attacker_ip else "unknown"
+                
+                attacker_details = {
+                    'ip': attacker_ip,
+                    'honeypot_type': 'web',
+                    'log_sample': log_data.strip()[-200:]
+                }
+                
+                # Optional CloudWatch logging
+                print(f"[CloudWatch] Attack detected from {attacker_ip} on web honeypot")
+        
         return np.array([attacker_detected, self.current_honeypot])
 
     def step(self, action):
-        print(f"Executing action: {action}")
-        if action == 0: # Do Nothing / Stop Honeypot
-            self._execute_command("docker stop cowrie_honeypot || true")
-            self._execute_command("docker stop web_honeypot || true")
-            self.current_honeypot = 0
-        elif action == 1: # Deploy Cowrie (SSH)
-            self._execute_command("docker stop web_honeypot || true")
-            self._execute_command("docker run -d --rm -p 2222:2222 --name cowrie_honeypot cowrie/cowrie")
-            self.current_honeypot = 1
-        elif action == 2: # Deploy Web Honeypot
-            self._execute_command("docker stop cowrie_honeypot || true")
-            self._execute_command("docker run -d --rm -p 80:80 --name web_honeypot nginx")
-            self.current_honeypot = 2
+        action_names = ['Stop Honeypots', 'Deploy SSH Honeypot', 'Deploy Web Honeypot']
+        print(f"[RL Agent Decision] Action {action}: {action_names[action]}")
+        
+        # Store action for monitoring
+        self.last_action = action
+        
+        # Use local honeypot manager for localhost, otherwise use remote commands
+        if self.host == 'localhost' and hasattr(self, 'honeypot_manager'):
+            self.honeypot_manager.deploy_honeypot(action)
+            self.current_honeypot = action
+        else:
+            # Remote deployment commands
+            if action == 0: # Do Nothing / Stop Honeypot
+                self._execute_command("docker stop cowrie_honeypot || true")
+                self._execute_command("docker stop web_honeypot || true")
+                self.current_honeypot = 0
+            elif action == 1: # Deploy Cowrie (SSH)
+                self._execute_command("docker stop web_honeypot || true")
+                self._execute_command("docker run -d --rm -p 2222:2222 --name cowrie_honeypot cowrie/cowrie")
+                self.current_honeypot = 1
+            elif action == 2: # Deploy Web Honeypot
+                self._execute_command("docker stop cowrie_honeypot || true")
+                self._execute_command("docker run -d --rm -p 80:80 --name web_honeypot nginx")
+                self.current_honeypot = 2
 
-        time.sleep(5)
+        time.sleep(3)  # Allow time for deployment and attack detection
 
         next_state = self._get_state()
 
         reward = 0
         attacker_detected = int(next_state[0])
 
-        if attacker_detected == 1 and self.current_honeypot == 1:
-            reward = 10
-        elif attacker_detected == 0 and self.current_honeypot != 0:
-            reward = -1
+        # Reward structure for real honeypot effectiveness
+        if attacker_detected == 1:
+            if self.current_honeypot == 1:  # SSH honeypot caught attacker
+                reward = 10
+                print(f"[Environment] REWARD +10: SSH honeypot successfully caught attacker")
+            elif self.current_honeypot == 2:  # Web honeypot caught attacker
+                reward = 8
+                print(f"[Environment] REWARD +8: Web honeypot successfully caught attacker")
+            else:
+                reward = -5  # Attacker detected but no honeypot running
+                print(f"[Environment] REWARD -5: Attacker detected but no honeypot active")
+        else:
+            if self.current_honeypot != 0:
+                reward = -1  # Running honeypot but no attacker
+                print(f"[Environment] REWARD -1: Honeypot running but no attacker activity")
+            else:
+                reward = 0  # No honeypot, no attacker - neutral
+                print(f"[Environment] REWARD 0: No activity")
+        
+        # Optional CloudWatch metrics
+        action_names = ['none', 'ssh', 'web']
+        print(f"[CloudWatch] Reward: {reward}, Action: {action_names[action] if action < len(action_names) else 'unknown'}")
 
         done = False
         return next_state, reward, done

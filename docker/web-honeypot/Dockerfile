@@ -1,11 +1,4 @@
-FROM python:3.9-slim
-
-RUN pip install flask
-
-WORKDIR /app
-
-COPY web_honeypot.py .
-
+FROM nginx:alpine
+COPY index.html /usr/share/nginx/html/
 EXPOSE 80
-
-CMD ["python", "web_honeypot.py"]
+CMD ["nginx", "-g", "daemon off;"]

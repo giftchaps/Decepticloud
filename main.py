@@ -7,17 +7,19 @@ from src.environment import CloudHoneynetEnv
 from src.attacker import run_attacker_thread
 from src.aws_utils import get_instance_id_by_ip, upload_dir_to_s3
 import numpy as np
+import json
+import socket
 
 # --- CONFIGURATION ---
 STATE_SIZE = 2      # [attacker_detected (0/1), current_honeypot_type (0/1/2)]
 ACTION_SIZE = 3     # [0: Do Nothing, 1: Deploy Cowrie, 2: Deploy Web Honeypot]
-EPISODES = 5  # Reduced default for quick smoke runs
+EPISODES = 10  # Sufficient episodes to demonstrate learning
 BATCH_SIZE = 32
 
 # Replace these with your instance's details before running
-EC2_HOST = os.environ.get('EC2_HOST') or "YOUR_EC2_IP_ADDRESS"
+EC2_HOST = os.environ.get('EC2_HOST') or "localhost"  # Change to your EC2 IP for cloud
 EC2_USER = os.environ.get('EC2_USER') or "ubuntu"
-EC2_KEY_FILE = os.environ.get('EC2_KEY_FILE') or "path/to/your/key.pem"
+EC2_KEY_FILE = os.environ.get('EC2_KEY_FILE') or "your-key.pem"  # Change to your key path
 
 # Results logging
 RESULTS_DIR = "results"
@@ -34,7 +36,7 @@ S3_BUCKET = os.environ.get('DECEPTICLOUD_RESULTS_BUCKET') or None
 S3_PREFIX = 'decepticloud_results'
 
 # Dry-run mode: set DECEPTICLOUD_DRY_RUN=1 to enable (no remote commands executed)
-DRY_RUN = os.environ.get('DECEPTICLOUD_DRY_RUN', os.environ.get('DRY_RUN', '0')).lower() in ('1', 'true', 'yes')
+DRY_RUN = os.environ.get('DECEPTICLOUD_DRY_RUN', os.environ.get('DRY_RUN', '1')).lower() in ('1', 'true', 'yes')  # Default to dry-run for local testing
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -53,7 +55,9 @@ if LOG_PER_TIMESTEP and not os.path.exists(per_timestep_path):
 
 
 def run_experiment():
+    print("=== DeceptiCloud: Autonomous RL Framework for Adaptive Cloud Honeynets ===")
     print("Initializing environment and agent...")
+    
     # Auto-detect instance id if using SSM and only IP is provided
     ssm_instance = SSM_INSTANCE_ID
     if USE_SSM and not SSM_INSTANCE_ID and EC2_HOST:

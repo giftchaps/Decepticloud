@@ -24,21 +24,31 @@ This repository contains the DeceptiCloud project: an experimental system that u
 Detailed step-by-step setup, experiment protocol, data collection guidance, tuning tips, and reproducibility checklist are in `GUIDE.md` (recommended read before running experiments).
 
 Files:
-- `src/agent.py` — DQNAgent implementation.
-- `src/environment.py` — CloudHoneynetEnv that connects to an EC2 instance via SSH and controls Docker honeypots.
-- `src/attacker.py` — simple scripted attacker that generates SSH login attempts.
-- `infra/main.tf` — Terraform script to create an EC2 instance and security group for the lab.
-- `notebooks/01_data_analysis.ipynb` — notebook for plotting results.
+- `src/agent.py` — DQNAgent with CloudWatch learning metrics
+- `src/environment.py` — CloudHoneynetEnv with real attack detection and reward tracking
+- `src/adversarial_attacker.py` — RL-based adversarial attacker
+- `src/monitoring.py` — CloudWatch integration and dashboard generation
+- `src/cost_tracker.py` — AWS cost analysis for economic research
+- `infra/main.tf` — Terraform script for EC2 and security groups
+- `notebooks/01_data_analysis.ipynb` — Research data analysis and visualization
 
 ## PowerShell Scripts
 
+**Infrastructure:**
 - `scripts/setup_infrastructure.ps1` — Complete infrastructure deployment
 - `scripts/terraform_init.ps1` — Initialize Terraform
 - `scripts/terraform_apply.ps1` — Deploy/plan infrastructure
 - `scripts/terraform_destroy.ps1` — Clean up resources
+
+**Experiments:**
 - `scripts/run_experiment.ps1` — Run DeceptiCloud experiment
 - `scripts/run_smoke_check.ps1` — Quick validation test
 - `scripts/docker_manage.ps1` — Docker honeypot management
+
+**Monitoring:**
+- `scripts/setup_cloudwatch.ps1` — Configure CloudWatch monitoring
+- `scripts/monitor_system.ps1` — Real-time monitoring and dashboards
+- `scripts/attack_simulator.ps1` — Test attack detection
 
 See `scripts/README.md` for detailed usage.
 
@@ -62,3 +72,38 @@ Local testing with Docker containers:
 ```
 
 See `GUIDE.md` for the full recommended workflow.
+
+## Monitoring & Visualization
+
+View real-time attacks, rewards, and learning progress:
+
+```powershell
+# Setup CloudWatch monitoring
+.\scripts\setup_cloudwatch.ps1
+
+# View real-time dashboard
+.\scripts\monitor_system.ps1 -EC2Host "<public_ip>" -KeyFile "<key.pem>" -Action dashboard
+
+# Monitor live honeypot logs
+.\scripts\monitor_system.ps1 -EC2Host "<public_ip>" -KeyFile "<key.pem>" -Action live-logs
+
+# Test attack detection
+.\scripts\attack_simulator.ps1 -TargetHost "<public_ip>" -AttackType ssh -Duration 120
+
+# View CloudWatch console
+.\scripts\monitor_system.ps1 -EC2Host "<public_ip>" -KeyFile "<key.pem>" -Action cloudwatch
+```
+
+**What you can see:**
+- Real-time attack detection with attacker IPs
+- RL agent learning progress (epsilon decay, Q-values, loss)
+- Reward system in action
+- Honeypot deployment decisions
+- Attack patterns and honeypot effectiveness
+- CloudWatch metrics and alarms
+
+**Testing autonomous behavior:**
+- Run attack simulator from different machines/IPs
+- Watch agent adapt honeypot deployment
+- Monitor reward changes based on attack patterns
+- Verify learning through epsilon decay and Q-value evolution

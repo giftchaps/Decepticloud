@@ -9,9 +9,10 @@ param(
 )
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Definition
-Set-Location $here
+$projectRoot = Split-Path -Parent $here
+Set-Location $projectRoot
 
-. .\.venv\Scripts\Activate.ps1
+. .\scripts\.venv\Scripts\Activate.ps1
 
 $cmd = "python .\scripts\smoke_check.py"
 if ($UseSSM) { $cmd += " --use-ssm" }

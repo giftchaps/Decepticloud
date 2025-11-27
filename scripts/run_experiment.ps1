@@ -10,13 +10,14 @@ param(
 )
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Definition
-Set-Location $here
+$projectRoot = Split-Path -Parent $here
+Set-Location $projectRoot
 
-if (-Not (Test-Path -Path ".venv")) {
-    python -m venv .venv
+if (-Not (Test-Path -Path "scripts\.venv")) {
+    python -m venv scripts\.venv
 }
 
-. .\.venv\Scripts\Activate.ps1
+. .\scripts\.venv\Scripts\Activate.ps1
 pip install -r .\requirements.txt
 
 # Set environment variables for the run
