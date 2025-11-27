@@ -64,3 +64,6 @@ infra/terraform.tfvars
 
 # OS
 Thumbs.db
+
+# Archived files
+.archive/
