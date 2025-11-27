@@ -83,16 +83,25 @@ if (-not $SkipSetup) {
 
     # Create directories
     $dirs = @(
+        "data",
+        "data\cowrie",
         "data\cowrie\logs",
         "data\cowrie\downloads",
         "data\cowrie\etc",
+        "data\nginx",
         "data\nginx\logs",
         "data\nginx\content"
     )
 
     foreach ($dir in $dirs) {
         if (-not (Test-Path $dir)) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            try {
+                New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+                Write-Verbose "Created directory: $dir"
+            } catch {
+                Print-Error "Failed to create directory: $dir - $($_.Exception.Message)"
+                exit 1
+            }
         }
     }
 
@@ -113,7 +122,13 @@ if (-not $SkipSetup) {
 </body>
 </html>
 "@
-    $indexHtml | Out-File -FilePath "data\nginx\content\index.html" -Encoding UTF8
+
+    try {
+        $indexHtml | Out-File -FilePath "data\nginx\content\index.html" -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Print-Error "Failed to create index.html: $($_.Exception.Message)"
+        exit 1
+    }
 
     $envFile = @"
 # Production Environment Configuration
@@ -123,7 +138,13 @@ AWS_ACCESS_KEY_ID=AKIA3OEXAMPLEKEY123
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 STRIPE_KEY=sk_live_EXAMPLE123456789_HONEYTOKEN_FAKE
 "@
-    $envFile | Out-File -FilePath "data\nginx\content\.env" -Encoding UTF8
+
+    try {
+        $envFile | Out-File -FilePath "data\nginx\content\.env" -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Print-Error "Failed to create .env file: $($_.Exception.Message)"
+        exit 1
+    }
 
     Print-Success "Web content created"
 }
