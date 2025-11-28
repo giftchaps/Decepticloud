@@ -4,7 +4,14 @@ import torch.optim as optim
 import numpy as np
 import random
 from collections import deque
-from .monitoring import monitor
+try:
+    from .monitoring import monitor
+except ImportError:
+    # For local testing without monitoring
+    class MockMonitor:
+        def send_learning_metrics(self, *args, **kwargs):
+            pass
+    monitor = MockMonitor()
 
 class DQNAgent:
     def __init__(self, state_size, action_size):
@@ -29,6 +36,7 @@ class DQNAgent:
         print(f"[Agent] Neural network architecture:")
         print(f"  Input: {state_size} -> Hidden: 24 -> Hidden: 24 -> Output: {action_size}")
         print(f"  Total parameters: {sum(p.numel() for p in self.model.parameters())}")
+        print(f"[Agent] Enhanced state: [attacker_detected, current_honeypot, attack_intensity, dwell_time]")
         
         # Learning tracking
         self.episode_rewards = []

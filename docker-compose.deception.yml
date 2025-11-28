@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  cowrie_deception:
+    image: cowrie/cowrie:latest
+    container_name: cowrie_deception_local
+    ports:
+      - "2222:2222"
+    volumes:
+      - ./cowrie_config:/cowrie/cowrie-git/etc
+      - ./src:/cowrie/deception
+      - ./fake_filesystem:/cowrie/fake_fs
+    environment:
+      - COWRIE_DECEPTION_ENABLED=true
+    networks:
+      - deception_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "netstat", "-ln", "|", "grep", ":2222"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nginx_deception:
+    image: nginx:alpine
+    container_name: nginx_deception_local
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx_deception:/usr/share/nginx/html
+      - ./nginx_config:/etc/nginx/conf.d
+    networks:
+      - deception_net
+    restart: unless-stopped
+
+  deception_controller:
+    build:
+      context: .
+      dockerfile: Dockerfile.deception
+    container_name: deception_controller
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+    environment:
+      - DECEPTION_MODE=adaptive
+      - LOG_LEVEL=INFO
+    networks:
+      - deception_net
+    depends_on:
+      - cowrie_deception
+      - nginx_deception
+
+networks:
+  deception_net:
+    driver: bridge

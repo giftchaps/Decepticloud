@@ -1,56 +1,81 @@
-print("=== DeceptiCloud System Test ===")
+#!/usr/bin/env python3
+"""
+Quick test to verify attack detection works
+"""
+import subprocess
+import time
+import sys
+import os
 
-# Test 1: Imports
-print("1. Testing imports...")
-try:
-    import torch, numpy, paramiko, boto3, requests
-    from src.agent import DQNAgent
-    from src.environment import CloudHoneynetEnv
-    from src.attacker import run_attacker_thread
-    print("   [OK] All imports successful")
-except Exception as e:
-    print(f"   [ERROR] Import failed: {e}")
-    exit(1)
+# Add src to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-# Test 2: Agent
-print("2. Testing agent creation...")
-try:
-    agent = DQNAgent(state_size=2, action_size=3)
-    print("   [OK] DQN Agent created")
-except Exception as e:
-    print(f"   [ERROR] Agent creation failed: {e}")
-    exit(1)
+def run_command(cmd):
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        return result.stdout.strip(), result.stderr.strip()
+    except:
+        return "", "timeout"
 
-# Test 3: Environment
-print("3. Testing environment (dry-run)...")
-try:
-    env = CloudHoneynetEnv('localhost', 'test', 'test.pem', dry_run=True)
-    state = env.reset()
-    action = agent.act(state)
-    next_state, reward, done = env.step(action)
-    print(f"   [OK] Environment test passed (reward={reward})")
-except Exception as e:
-    print(f"   [ERROR] Environment test failed: {e}")
-    exit(1)
-
-# Test 4: Honeypots
-print("4. Testing honeypots...")
-try:
-    r = requests.get('http://localhost', timeout=5)
-    if 'Admin Login' in r.text:
-        print("   [OK] Web honeypot responding")
+def test_attack_detection():
+    print("=== Quick Attack Detection Test ===")
+    
+    # 1. Start containers
+    print("[1] Starting containers...")
+    run_command("docker-compose -f docker-compose.local.yml up -d")
+    time.sleep(3)
+    
+    # 2. Check if containers are running
+    stdout, _ = run_command('docker ps --filter "name=honeypot_local" --format "{{.Names}}"')
+    print(f"[2] Running containers: {stdout}")
+    
+    # 3. Test SSH connection
+    print("[3] Testing SSH attack...")
+    ssh_cmd = 'echo "test" | ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@localhost -p 2222 2>/dev/null'
+    stdout, stderr = run_command(ssh_cmd)
+    print(f"[3] SSH result: stdout='{stdout}' stderr='{stderr}'")
+    
+    # 4. Test web request
+    print("[4] Testing web attack...")
+    web_cmd = "curl -m 5 http://localhost/admin 2>/dev/null"
+    stdout, stderr = run_command(web_cmd)
+    print(f"[4] Web result: stdout='{stdout}' stderr='{stderr}'")
+    
+    # 5. Check logs for attacks
+    print("[5] Checking Cowrie logs...")
+    log_cmd = "docker logs cowrie_honeypot_local --tail 10 2>/dev/null"
+    stdout, stderr = run_command(log_cmd)
+    if "connection" in stdout.lower() or "new connection" in stdout.lower():
+        print("[5] ✅ SSH attack detected in logs!")
+        print(f"    Sample: {stdout[-100:]}")
     else:
-        print("   [ERROR] Web honeypot invalid response")
-        exit(1)
-except Exception as e:
-    print(f"   [ERROR] Web honeypot failed: {e}")
-    exit(1)
+        print("[5] ❌ No SSH attack detected")
+    
+    print("[6] Checking nginx logs...")
+    log_cmd = "docker logs nginx_honeypot_local --tail 10 2>/dev/null"
+    stdout, stderr = run_command(log_cmd)
+    if "GET" in stdout or "POST" in stdout:
+        print("[6] ✅ Web attack detected in logs!")
+        print(f"    Sample: {stdout[-100:]}")
+    else:
+        print("[6] ❌ No web attack detected")
+    
+    # 7. Test the detection logic
+    print("[7] Testing detection logic...")
+    from main_local import LocalDockerEnvironment
+    
+    env = LocalDockerEnvironment()
+    state = env._get_state()
+    print(f"[7] Current state: {state}")
+    print(f"    attacker_detected={state[0]}, current_honeypot={state[1]}")
+    print(f"    attack_intensity={state[2]}, dwell_time={state[3]}")
+    
+    if state[0] == 1:
+        print("[7] ✅ Attack detection working!")
+    else:
+        print("[7] ❌ Attack detection not working")
+    
+    print("\n=== Test Complete ===")
 
-print()
-print("*** ALL TESTS PASSED! ***")
-print("System is ready for experiments!")
-print()
-print("To run experiment:")
-print("1. Set: $env:EC2_HOST = 'your-ec2-ip'")
-print("2. Set: $env:EC2_KEY_FILE = 'path/to/key.pem'")
-print("3. Run: python main.py")
+if __name__ == "__main__":
+    test_attack_detection()

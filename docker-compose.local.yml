@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  cowrie_honeypot_local:
+    image: cowrie/cowrie:latest
+    container_name: cowrie_honeypot_local
+    ports:
+      - "2222:2222"
+    volumes:
+      - ./data/cowrie/logs:/cowrie/cowrie-git/var/log/cowrie
+      - ./data/cowrie/downloads:/cowrie/cowrie-git/var/lib/cowrie/downloads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "netstat", "-ln", "|", "grep", ":2222"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nginx_honeypot_local:
+    image: nginx:alpine
+    container_name: nginx_honeypot_local
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/web-honeypot/index.html:/usr/share/nginx/html/index.html:ro
+      - ./data/nginx/logs:/var/log/nginx
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

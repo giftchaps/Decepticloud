@@ -32,9 +32,15 @@ class CloudHoneynetEnv:
             self.ssh_client = paramiko.SSHClient()
             self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        self.state_size = 2  # [attacker_detected, current_honeypot]
+        self.state_size = 4  # [attacker_detected, current_honeypot, attack_intensity, dwell_time]
         self.action_size = 3 # [0: None, 1: Cowrie, 2: Web]
         self.current_honeypot = 0 # 0 = None
+        
+        # Deception tracking for adaptive behavior
+        self.attacker_history = []
+        self.dwell_time = 0
+        self.attack_intensity = 0
+        self.last_attack_time = 0
 
         self.ssm_runner = None
         if use_ssm:
@@ -113,7 +119,14 @@ class CloudHoneynetEnv:
                 metrics = self.honeypot_manager.get_performance_metrics()
                 print(f"[Environment] Attack detected! Total attacks: {metrics['total_attacks']}")
                 attacker_details = {'detection_method': 'local_simulation', 'metrics': metrics}
-            return np.array([attacker_detected, self.current_honeypot])
+            # Enhanced state for deception learning
+            if attacker_detected:
+                self.dwell_time += 1
+                self.attack_intensity = min(10, self.attack_intensity + 1)
+            else:
+                self.attack_intensity = max(0, self.attack_intensity - 0.5)
+            
+            return np.array([attacker_detected, self.current_honeypot, self.attack_intensity, self.dwell_time])
         
         # Remote instance detection
         running_containers, _ = self._execute_command("docker ps --format '{{.Names}}'")
@@ -166,7 +179,30 @@ class CloudHoneynetEnv:
                 # Optional CloudWatch logging
                 print(f"[CloudWatch] Attack detected from {attacker_ip} on web honeypot")
         
-        return np.array([attacker_detected, self.current_honeypot])
+        # Track attacker behavior for deception adaptation
+        current_time = time.time()
+        if attacker_detected:
+            self.dwell_time += 1
+            self.attack_intensity = min(10, self.attack_intensity + 1)
+            self.last_attack_time = current_time
+            
+            # Log attacker behavior for research
+            self.attacker_history.append({
+                'timestamp': current_time,
+                'honeypot_type': self.current_honeypot,
+                'details': attacker_details
+            })
+            
+            print(f"[Deception] Attacker engaged for {self.dwell_time} timesteps, intensity: {self.attack_intensity}")
+        else:
+            # Decay intensity when no attacker
+            self.attack_intensity = max(0, self.attack_intensity - 0.5)
+            
+            # Reset dwell time if attacker has been gone too long
+            if current_time - self.last_attack_time > 60:  # 1 minute
+                self.dwell_time = 0
+        
+        return np.array([attacker_detected, self.current_honeypot, self.attack_intensity, self.dwell_time])
 
     def step(self, action):
         action_names = ['Stop Honeypots', 'Deploy SSH Honeypot', 'Deploy Web Honeypot']
@@ -194,31 +230,38 @@ class CloudHoneynetEnv:
                 self._execute_command("docker run -d --rm -p 80:80 --name web_honeypot nginx")
                 self.current_honeypot = 2
 
-        time.sleep(3)  # Allow time for deployment and attack detection
+        # Adaptive timing for deception - avoid detection during transitions
+        if attacker_detected:
+            # Longer observation to maximize dwell time and learning
+            time.sleep(12)  # Extended engagement period
+            print(f"[Deception] Maintaining engagement with attacker...")
+        else:
+            # Quick setup when no attacker to be ready
+            time.sleep(3)  # Setup time for honeypot deployment
 
         next_state = self._get_state()
 
         reward = 0
         attacker_detected = int(next_state[0])
 
-        # Reward structure for real honeypot effectiveness
+        # Deceptive reward structure - maximize dwell time and learning
         if attacker_detected == 1:
-            if self.current_honeypot == 1:  # SSH honeypot caught attacker
-                reward = 10
-                print(f"[Environment] REWARD +10: SSH honeypot successfully caught attacker")
-            elif self.current_honeypot == 2:  # Web honeypot caught attacker
-                reward = 8
-                print(f"[Environment] REWARD +8: Web honeypot successfully caught attacker")
+            if self.current_honeypot == 1:  # SSH honeypot engaging attacker
+                reward = 15  # High reward for successful deception
+                print(f"[Environment] REWARD +15: SSH honeypot successfully deceiving attacker")
+            elif self.current_honeypot == 2:  # Web honeypot engaging attacker
+                reward = 12  # Good reward for web deception
+                print(f"[Environment] REWARD +12: Web honeypot successfully deceiving attacker")
             else:
-                reward = -5  # Attacker detected but no honeypot running
-                print(f"[Environment] REWARD -5: Attacker detected but no honeypot active")
+                reward = -10  # Heavy penalty for missing deception opportunity
+                print(f"[Environment] REWARD -10: Attacker present but no deception active")
         else:
             if self.current_honeypot != 0:
-                reward = -1  # Running honeypot but no attacker
-                print(f"[Environment] REWARD -1: Honeypot running but no attacker activity")
+                reward = -2  # Small penalty for running without attacker
+                print(f"[Environment] REWARD -2: Honeypot idle (waiting for attacker)")
             else:
-                reward = 0  # No honeypot, no attacker - neutral
-                print(f"[Environment] REWARD 0: No activity")
+                reward = -1  # Penalty for not being ready
+                print(f"[Environment] REWARD -1: No deception ready")
         
         # Optional CloudWatch metrics
         action_names = ['none', 'ssh', 'web']
@@ -232,7 +275,14 @@ class CloudHoneynetEnv:
         self._execute_command("docker stop cowrie_honeypot || true")
         self._execute_command("docker stop web_honeypot || true")
         self.current_honeypot = 0
-        return np.array([0, self.current_honeypot])
+        
+        # Reset deception tracking
+        self.attacker_history = []
+        self.dwell_time = 0
+        self.attack_intensity = 0
+        self.last_attack_time = 0
+        
+        return np.array([0, self.current_honeypot, 0, 0])
 
     def __del__(self):
         try:

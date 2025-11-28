@@ -33,9 +33,14 @@ class LocalDockerEnvironment:
 
     def __init__(self, host="localhost"):
         self.host = host
-        self.state_size = 3  # [ssh_attack, web_attack, current_honeypot]
+        self.state_size = 4  # [attacker_detected, current_honeypot, attack_intensity, dwell_time]
         self.action_size = 3  # 0=nothing, 1=ssh, 2=web
         self.current_honeypot = 0  # 0=none, 1=cowrie, 2=nginx
+        
+        # Deception tracking
+        self.attack_intensity = 0
+        self.dwell_time = 0
+        self.last_attack_time = 0
 
         print("[Environment] Local Docker environment initialized")
         print(f"[Environment] Target: {host}")
@@ -89,7 +94,21 @@ class LocalDockerEnvironment:
                 web_attack = 1
                 print(f"[Detection] Web attack detected in nginx logs")
 
-        state = [ssh_attack, web_attack, self.current_honeypot]
+        # Enhanced state for deception learning
+        attacker_detected = max(ssh_attack, web_attack)
+        current_time = time.time()
+        
+        if attacker_detected:
+            self.dwell_time += 1
+            self.attack_intensity = min(10, self.attack_intensity + 1)
+            self.last_attack_time = current_time
+            print(f"[Deception] Attacker engaged for {self.dwell_time} timesteps, intensity: {self.attack_intensity}")
+        else:
+            self.attack_intensity = max(0, self.attack_intensity - 0.5)
+            if current_time - self.last_attack_time > 60:
+                self.dwell_time = 0
+        
+        state = [attacker_detected, self.current_honeypot, self.attack_intensity, self.dwell_time]
         return state
 
     def reset(self):
@@ -99,6 +118,11 @@ class LocalDockerEnvironment:
         # Stop containers if running
         self._execute_docker_command("docker stop cowrie_honeypot_local nginx_honeypot_local 2>nul")
         self.current_honeypot = 0
+        
+        # Reset deception tracking
+        self.attack_intensity = 0
+        self.dwell_time = 0
+        self.last_attack_time = 0
 
         time.sleep(2)
         return self._get_state()
@@ -134,9 +158,9 @@ class LocalDockerEnvironment:
 
                 if "error" not in stderr.lower():
                     self.current_honeypot = 1
-                    print("[Action] ✓ Cowrie honeypot deployed")
+                    print("[Action] Cowrie honeypot deployed")
                 else:
-                    print(f"[Action] ✗ Failed to deploy Cowrie: {stderr}")
+                    print(f"[Action] Failed to deploy Cowrie: {stderr}")
 
         elif action == 2:
             # Deploy nginx web honeypot
@@ -150,50 +174,64 @@ class LocalDockerEnvironment:
 
                 if "error" not in stderr.lower():
                     self.current_honeypot = 2
-                    print("[Action] ✓ nginx honeypot deployed")
+                    print("[Action] nginx honeypot deployed")
                 else:
-                    print(f"[Action] ✗ Failed to deploy nginx: {stderr}")
+                    print(f"[Action] Failed to deploy nginx: {stderr}")
 
-        # Wait for state to update
-        time.sleep(3)
+        # Adaptive timing for deception
+        next_state_preview = self._get_state()
+        attacker_detected = next_state_preview[0]
+        
+        if attacker_detected:
+            # Longer engagement time when attacker is active
+            time.sleep(8)
+            print(f"[Deception] Maintaining engagement with attacker...")
+        else:
+            # Quick transitions when no attacker
+            time.sleep(3)
 
         # Get new state
         next_state = self._get_state()
-        ssh_attack, web_attack, _ = next_state
+        attacker_detected, current_honeypot, attack_intensity, dwell_time = next_state
+        
+        # For reward calculation, we need to know attack types
+        ssh_attack = 0
+        web_attack = 0
+        if attacker_detected:
+            # Check which type of attack
+            if self._check_container_running("cowrie_honeypot_local"):
+                cmd = 'docker logs --tail 10 cowrie_honeypot_local 2>&1 | findstr /C:"login attempt" /C:"SSH"'
+                stdout, _ = self._execute_docker_command(cmd)
+                if stdout and len(stdout.strip()) > 0:
+                    ssh_attack = 1
+            
+            if self._check_container_running("nginx_honeypot_local"):
+                cmd = 'docker logs --tail 10 nginx_honeypot_local 2>&1 | findstr /C:"GET" /C:"POST"'
+                stdout, _ = self._execute_docker_command(cmd)
+                if stdout and len(stdout.strip()) > 0:
+                    web_attack = 1
 
-        # Calculate reward
-        if action == 0:
-            # No honeypot deployed
-            if ssh_attack or web_attack:
-                reward = -2  # Missed attack opportunity
-                print(f"[Reward] -2: Attack detected but no honeypot deployed!")
+        # Enhanced deceptive reward structure
+        if attacker_detected:
+            if action == 1 and ssh_attack:  # SSH honeypot engaging SSH attacker
+                reward = 15 + (dwell_time * 0.5)  # Bonus for sustained engagement
+                print(f"[Reward] +{reward}: SSH honeypot successfully deceiving attacker (dwell: {dwell_time})")
+            elif action == 2 and web_attack:  # Web honeypot engaging web attacker
+                reward = 12 + (dwell_time * 0.5)  # Bonus for sustained engagement
+                print(f"[Reward] +{reward}: Web honeypot successfully deceiving attacker (dwell: {dwell_time})")
+            elif action == 0:
+                reward = -10  # Heavy penalty for missing deception opportunity
+                print(f"[Reward] -10: Attacker present but no deception active")
             else:
-                reward = 0  # No activity
-                print(f"[Reward] 0: No activity")
-
-        elif action == 1:
-            # SSH honeypot deployed
-            if ssh_attack:
-                reward = 10  # SSH attack captured!
-                print(f"[Reward] +10: SSH attack captured by Cowrie!")
-            elif web_attack:
-                reward = -2  # Wrong honeypot type
-                print(f"[Reward] -2: Web attack but SSH honeypot deployed")
+                reward = -5  # Wrong honeypot type but still engaging
+                print(f"[Reward] -5: Wrong honeypot type but maintaining some deception")
+        else:
+            if action != 0:
+                reward = -2  # Small penalty for running without attacker
+                print(f"[Reward] -2: Honeypot idle (waiting for attacker)")
             else:
-                reward = -1  # Wasted resources
-                print(f"[Reward] -1: SSH honeypot running but no attacks")
-
-        elif action == 2:
-            # Web honeypot deployed
-            if web_attack:
-                reward = 10  # Web attack captured!
-                print(f"[Reward] +10: Web attack captured by nginx!")
-            elif ssh_attack:
-                reward = -2  # Wrong honeypot type
-                print(f"[Reward] -2: SSH attack but web honeypot deployed")
-            else:
-                reward = -1  # Wasted resources
-                print(f"[Reward] -1: Web honeypot running but no attacks")
+                reward = -1  # Penalty for not being ready
+                print(f"[Reward] -1: No deception ready")
 
         done = False  # Never end episode early
 
@@ -224,7 +262,7 @@ def main():
         print("See LOCAL_TESTING.md for instructions.")
         sys.exit(1)
 
-    print(f"✓ Docker found: {result.stdout.decode().strip()}")
+    print(f"Docker found: {result.stdout.decode().strip()}")
 
     # Check if honeypot containers exist
     result = subprocess.run(
@@ -267,7 +305,7 @@ def main():
     print("Starting Training")
     print("=" * 60)
 
-    print("\n📝 TIP: Open another terminal and run attack simulations:")
+    print("\nTIP: Open another terminal and run attack simulations:")
     print("  ssh -p 2222 root@localhost")
     print("  curl http://localhost:8080/.env")
     print("\n" + "=" * 60 + "\n")
@@ -287,7 +325,8 @@ def main():
 
             # Agent learns
             agent.remember(state, action, reward, next_state, done)
-            agent.replay()
+            if len(agent.memory) > 32:
+                agent.learn(32, e)
 
             # Log timestep
             with open(timestep_file, 'a', newline='') as f:
@@ -319,8 +358,10 @@ def main():
         if (e + 1) % 5 == 0:
             model_path = f'models/local_dqn_episode_{e+1}.pth'
             os.makedirs('models', exist_ok=True)
-            agent.save(model_path)
-            print(f"✓ Model saved: {model_path}")
+            # Save model (simplified for local testing)
+            import torch
+            torch.save(agent.model.state_dict(), model_path)
+            print(f"Model saved: {model_path}")
 
     # Final cleanup
     print("\n" + "=" * 60)
