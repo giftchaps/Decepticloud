@@ -1,0 +1,38 @@
+FROM python:3.11-slim
+
+LABEL maintainer="DeceptiCloud"
+LABEL description="Adaptive Deception Service for DeceptiCloud Honeypots"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy deception modules
+COPY src/deception/ /app/deception/
+COPY requirements.txt /app/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create data directory
+RUN mkdir -p /data/deception
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV DECEPTION_DATA_DIR=/data/deception
+ENV COWRIE_LOG_PATH=/cowrie/var/log/cowrie/cowrie.json
+
+# Expose metrics port (for future monitoring)
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
+# Run deception monitor
+CMD ["python", "-m", "deception.cowrie_integration"]

@@ -47,6 +47,26 @@ services:
     networks:
       - honeynet
 
+  # Adaptive Deception Service
+  deception:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.deception
+    container_name: deception_service_local
+    depends_on:
+      - cowrie
+    volumes:
+      - ./data/cowrie/logs:/cowrie/var/log/cowrie:ro
+      - ./data/deception:/data/deception
+      - ./src:/app/src:ro
+    environment:
+      - COWRIE_LOG_PATH=/cowrie/var/log/cowrie/cowrie.json
+      - DECEPTION_DATA_DIR=/data/deception
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    networks:
+      - honeynet
+
 networks:
   honeynet:
     driver: bridge
